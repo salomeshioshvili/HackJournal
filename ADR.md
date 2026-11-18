@@ -39,3 +39,11 @@ Context: The journal is a personal tool for one student and holds no sensitive d
 Decision: I did not build login, user accounts or per-user data, so every page is open to anyone who can reach the app's port.
 Alternatives considered: Flask sessions with a users table and password hashing, rejected because it adds a table, a secret key to configure and a login flow that I would have to test and defend, none of which a one-user tool needs. A single shared password in an environment variable, rejected because it protects little and would be one more required setting for the container.
 Consequences: The app stays simple and every feature belongs to one of the two domains, but it must only run locally or on a private network. Assignment 2's Azure deployment would need authentication before the app is reachable from the internet.
+
+## 6. Splitting the monolith along the Assignment 1 seam
+Date: 2026-11-18
+Status: Decided
+Context: Assignment 2 needs each domain in its own container with its own database. In Assignment 1 I already decided the cut was list_hackathon_records(), so that call has to become an HTTP request. After the Assignment 1 feedback I also realised ADR-3 overstated the schema: I wrote that checklist_rules connect through hackathon_id, but in the real database that column only exists on reflections.
+Decision: I kept that same seam. The log service owns hackathons, teammates, projects and technologies. The insights service owns reflections and checklist_rules. Insights asks log for data over HTTP using LOG_URL, with a timeout. reflections.hackathon_id is just a number now, not a foreign key across databases. checklist_rules stay global prep rules with condition_field / condition_value / item only — no hackathon_id. I am recording that correction here instead of rewriting ADR-3.
+Alternatives considered: Letting only the browser call both services, rejected because the brief wants at least one server-side call across the seam. Putting everything back in one app, rejected because that would undo Assignment 1.
+Consequences: SQL can no longer check that a reflection points at a real hackathon, so insights has to cope when log is down (clear error, not a crash). I already have two services in compose; I still need to move the full schema and build the static UI.
