@@ -1,0 +1,12 @@
+{
+  "checklist_rules": [
+    {"condition_field": "always", "condition_value": "*", "item": "Laptop and charger"},
+    {"condition_field": "always", "condition_value": "*", "item": "Student ID"},
+    {"condition_field": "always", "condition_value": "*", "item": "Water bottle"},
+    {"condition_field": "mode", "condition_value": "in_person", "item": "Phone charger and power bank"},
+    {"condition_field": "mode", "condition_value": "in_person", "item": "Travel documents"},
+    {"condition_field": "mode", "condition_value": "in_person", "item": "Snacks"},
+    {"condition_field": "mode", "condition_value": "online", "item": "Stable internet and headset"},
+    {"condition_field": "mode", "condition_value": "online", "item": "Sync with teammates on tooling before kickoff"}
+  ]
+}
