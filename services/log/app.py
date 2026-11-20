@@ -36,12 +36,7 @@ def create_app():
     @app.get("/health")
     def health():
         try:
-            conn = db.connect(retries=3)
-            cur = conn.cursor()
-            cur.execute("SELECT 1 AS ok")
-            cur.fetchone()
-            conn.close()
-            db_ok = True
+            db_ok = db.check_health()
         except Exception:
             db_ok = False
         body = {
