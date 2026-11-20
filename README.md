@@ -158,6 +158,15 @@ Repository: /Users/salomeshioshvili/sdd-assignment-1
 - `docs/schema.md` — database diagram (matches ADR 3)
 - `docs/architecture.md` — architecture diagram with the domain seam
 
+## Security incident: committed passwords
+
+On 10 November 2026 (commit `fb62340`) I committed three local database passwords: the SQL Server `sa` password in `.env.example`, and the `log_user` and `insights_user` passwords in `db/init.sql` and `.env.example`. I noticed it on 19 November while checking the repo against the Assignment 2 rules.
+
+- They were only used for the local Docker setup. They were never used on Azure or anywhere else.
+- `db/init.sql` now reads the passwords from environment variables, and `.env.example` only has placeholders. Real values live in my local `.env`, which is gitignored.
+- I changed my local passwords and recreated the local database. Azure uses new passwords that have never been in the repo, stored as GitHub secrets.
+- The old values are still in the Git history, so I treat them as burned and will never reuse them.
+
 ## AI disclosure statement
 
 I acknowledge the use of Claude (Anthropic) to plan the project, draft application code, unit tests, and documentation (ADRs, README, report), and to explain the container contract; and the use of Cursor to restyle the UI. The prompts used include requests for app ideas within the assignment constraints, the project skeleton and schema, each domain’s service and routes, unit tests with coverage, and documentation drafts. The output of these prompts was used to build the Flask app, SQLite schema and seed loading, tests, and the documents in this repository. I ran the app, modified parts (for example seed data, allowed statuses, and ADR wording), and made the visual design changes in Cursor. The detailed record is in `AI_USAGE.md`.

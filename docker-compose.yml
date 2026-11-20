@@ -3,7 +3,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Your_strong_SA_Passw0rd}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
     ports:
       - "1433:1433"
     volumes:
@@ -32,12 +32,16 @@ services:
       - |
         set -e
         if [ -x /opt/mssql-tools18/bin/sqlcmd ]; then
-          /opt/mssql-tools18/bin/sqlcmd -S db -U sa -P "$$MSSQL_SA_PASSWORD" -C -i /init.sql
+          /opt/mssql-tools18/bin/sqlcmd -S db -U sa -P "$$MSSQL_SA_PASSWORD" -C -i /init.sql \
+            -v LOG_DB_PASSWORD="$$LOG_DB_PASSWORD" INSIGHTS_DB_PASSWORD="$$INSIGHTS_DB_PASSWORD"
         else
-          /opt/mssql-tools/bin/sqlcmd -S db -U sa -P "$$MSSQL_SA_PASSWORD" -i /init.sql
+          /opt/mssql-tools/bin/sqlcmd -S db -U sa -P "$$MSSQL_SA_PASSWORD" -i /init.sql \
+            -v LOG_DB_PASSWORD="$$LOG_DB_PASSWORD" INSIGHTS_DB_PASSWORD="$$INSIGHTS_DB_PASSWORD"
         fi
     environment:
-      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Your_strong_SA_Passw0rd}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      LOG_DB_PASSWORD: ${LOG_DB_PASSWORD}
+      INSIGHTS_DB_PASSWORD: ${INSIGHTS_DB_PASSWORD}
     restart: "no"
 
   log:
@@ -47,7 +51,7 @@ services:
         condition: service_completed_successfully
     environment:
       PORT: "8001"
-      DATABASE_URL: "mssql+pymssql://log_user:Log_Passw0rd1@db:1433/log_db"
+      DATABASE_URL: "mssql+pymssql://log_user:${LOG_DB_PASSWORD}@db:1433/log_db"
       GIT_SHA: ${GIT_SHA:-dev}
     ports:
       - "8001:8001"
@@ -61,7 +65,7 @@ services:
         condition: service_started
     environment:
       PORT: "8002"
-      DATABASE_URL: "mssql+pymssql://insights_user:Insights_Passw0rd1@db:1433/insights_db"
+      DATABASE_URL: "mssql+pymssql://insights_user:${INSIGHTS_DB_PASSWORD}@db:1433/insights_db"
       LOG_URL: "http://log:8001"
       LOG_TIMEOUT_S: "2"
       GIT_SHA: ${GIT_SHA:-dev}

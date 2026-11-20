@@ -1,77 +1,42 @@
 import os
 import time
-from urllib.parse import urlparse
 
-import pymssql
-from flask import Flask, jsonify
+from flask import Flask, g, jsonify, request
+
+import db
+import service
+from rules import MODES, RESULTS
 
 PORT = int(os.environ.get("PORT", "8001"))
-GIT_SHA = os.environ.get("GIT_SHA", "dev")
-
-
-def db_params():
-    raw = os.environ["DATABASE_URL"]
-    for prefix in ("mssql+pymssql://", "mssql://", "pymssql://"):
-        if raw.startswith(prefix):
-            raw = raw[len(prefix) :]
-            break
-    parsed = urlparse("mssql://" + raw)
-    return {
-        "server": parsed.hostname,
-        "port": parsed.port or 1433,
-        "user": parsed.username,
-        "password": parsed.password,
-        "database": parsed.path.lstrip("/"),
-    }
-
-
-def connect(retries=30):
-    params = db_params()
-    last = None
-    for _ in range(retries):
-        try:
-            return pymssql.connect(as_dict=True, login_timeout=10, **params)
-        except Exception as err:
-            last = err
-            time.sleep(2)
-    raise RuntimeError(last)
-
-
-def setup_db():
-    conn = connect()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'hackathons')
-        CREATE TABLE hackathons (
-            id INT IDENTITY(1,1) PRIMARY KEY,
-            name NVARCHAR(255) NOT NULL,
-            status NVARCHAR(32) NOT NULL
-        )
-        """
-    )
-    cur.execute("SELECT COUNT(*) AS n FROM hackathons")
-    if cur.fetchone()["n"] == 0:
-        cur.execute(
-            "INSERT INTO hackathons (name, status) VALUES (%s, %s)",
-            ("AdventureX 2026", "attended"),
-        )
-        cur.execute(
-            "INSERT INTO hackathons (name, status) VALUES (%s, %s)",
-            ("Turin Hackathon", "skipped"),
-        )
-    conn.commit()
-    conn.close()
 
 
 def create_app():
-    setup_db()
+    conn = db.connect()
+    try:
+        service.setup_db(conn)
+    finally:
+        conn.close()
+
     app = Flask(__name__)
+
+    @app.before_request
+    def _start_timer():
+        g.started = time.time()
+
+    @app.after_request
+    def _log_request(response):
+        started = getattr(g, "started", None)
+        duration_ms = int((time.time() - started) * 1000) if started else -1
+        print(
+            f"{request.method} {request.path} -> {response.status_code} {duration_ms}ms",
+            flush=True,
+        )
+        return response
 
     @app.get("/health")
     def health():
         try:
-            conn = connect(retries=3)
+            conn = db.connect(retries=3)
             cur = conn.cursor()
             cur.execute("SELECT 1 AS ok")
             cur.fetchone()
@@ -82,19 +47,101 @@ def create_app():
         body = {
             "status": "ok" if db_ok else "error",
             "db": "ok" if db_ok else "error",
-            "version": GIT_SHA,
+            "version": db.GIT_SHA,
             "service": "log",
         }
         return jsonify(body), (200 if db_ok else 503)
 
     @app.get("/api/hackathons")
-    def hackathons():
-        conn = connect(retries=5)
-        cur = conn.cursor()
-        cur.execute("SELECT id, name, status FROM hackathons ORDER BY id")
-        rows = cur.fetchall()
-        conn.close()
-        return jsonify(rows)
+    def list_hackathons():
+        conn = db.connect(retries=5)
+        try:
+            return jsonify(service.list_hackathons(conn))
+        finally:
+            conn.close()
+
+    @app.get("/api/records")
+    def list_records():
+        """Seam endpoint: full hackathon records for the insights service."""
+        conn = db.connect(retries=5)
+        try:
+            return jsonify(service.list_records(conn))
+        finally:
+            conn.close()
+
+    @app.post("/api/hackathons")
+    def create_hackathon():
+        data = request.get_json(silent=True) or {}
+        conn = db.connect(retries=5)
+        try:
+            new_id = service.add_hackathon(conn, data)
+            return jsonify(service.get_hackathon(conn, new_id)), 201
+        except ValueError as err:
+            return jsonify({"error": str(err)}), 400
+        finally:
+            conn.close()
+
+    @app.get("/api/hackathons/<int:hackathon_id>")
+    def get_hackathon(hackathon_id):
+        conn = db.connect(retries=5)
+        try:
+            h = service.get_hackathon(conn, hackathon_id)
+            if h is None:
+                return jsonify({"error": "Hackathon not found."}), 404
+            h["next_statuses"] = service.next_statuses(h["status"])
+            h["modes"] = list(MODES)
+            h["results"] = list(RESULTS)
+            return jsonify(h)
+        finally:
+            conn.close()
+
+    @app.post("/api/hackathons/<int:hackathon_id>/status")
+    def update_status(hackathon_id):
+        data = request.get_json(silent=True) or {}
+        conn = db.connect(retries=5)
+        try:
+            service.change_status(conn, hackathon_id, data.get("status", ""))
+            return jsonify(service.get_hackathon(conn, hackathon_id))
+        except LookupError as err:
+            return jsonify({"error": str(err)}), 404
+        except ValueError as err:
+            return jsonify({"error": str(err)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/hackathons/<int:hackathon_id>/teammates")
+    def add_teammate(hackathon_id):
+        data = request.get_json(silent=True) or {}
+        conn = db.connect(retries=5)
+        try:
+            service.add_teammate(conn, hackathon_id, data.get("name", ""))
+            return jsonify(service.get_hackathon(conn, hackathon_id))
+        except LookupError as err:
+            return jsonify({"error": str(err)}), 404
+        except ValueError as err:
+            return jsonify({"error": str(err)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/hackathons/<int:hackathon_id>/projects")
+    def add_project(hackathon_id):
+        data = request.get_json(silent=True) or {}
+        conn = db.connect(retries=5)
+        try:
+            service.add_project(
+                conn,
+                hackathon_id,
+                data.get("name", ""),
+                data.get("result", ""),
+                data.get("technologies", ""),
+            )
+            return jsonify(service.get_hackathon(conn, hackathon_id)), 201
+        except LookupError as err:
+            return jsonify({"error": str(err)}), 404
+        except ValueError as err:
+            return jsonify({"error": str(err)}), 400
+        finally:
+            conn.close()
 
     return app
 

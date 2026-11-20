@@ -7,11 +7,11 @@ IF DB_ID(N'insights_db') IS NULL
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'log_user')
-    CREATE LOGIN log_user WITH PASSWORD = N'Log_Passw0rd1';
+    CREATE LOGIN log_user WITH PASSWORD = N'$(LOG_DB_PASSWORD)';
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'insights_user')
-    CREATE LOGIN insights_user WITH PASSWORD = N'Insights_Passw0rd1';
+    CREATE LOGIN insights_user WITH PASSWORD = N'$(INSIGHTS_DB_PASSWORD)';
 GO
 
 USE log_db;
