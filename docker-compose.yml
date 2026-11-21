@@ -52,6 +52,7 @@ services:
     environment:
       PORT: "8001"
       DATABASE_URL: "mssql+pymssql://log_user:${LOG_DB_PASSWORD}@db:1433/log_db"
+      UI_ORIGIN: "http://localhost:8080"
       GIT_SHA: ${GIT_SHA:-dev}
     ports:
       - "8001:8001"
@@ -68,6 +69,7 @@ services:
       DATABASE_URL: "mssql+pymssql://insights_user:${INSIGHTS_DB_PASSWORD}@db:1433/insights_db"
       LOG_URL: "http://log:8001"
       LOG_TIMEOUT_S: "2"
+      UI_ORIGIN: "http://localhost:8080"
       GIT_SHA: ${GIT_SHA:-dev}
     ports:
       - "8002:8002"

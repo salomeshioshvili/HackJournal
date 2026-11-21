@@ -35,3 +35,22 @@ def connect(retries=30):
             last = err
             time.sleep(2)
     raise RuntimeError(last)
+
+
+def check_health():
+    conn = connect(retries=1)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE health_check SET checked_at = SYSUTCDATETIME() WHERE id = 1;
+            IF @@ROWCOUNT = 0
+                INSERT INTO health_check (id, checked_at) VALUES (1, SYSUTCDATETIME());
+            """
+        )
+        cur.execute("SELECT checked_at FROM health_check WHERE id = 1")
+        row = cur.fetchone()
+        conn.commit()
+        return row is not None
+    finally:
+        conn.close()
