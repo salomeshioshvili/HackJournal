@@ -4,6 +4,7 @@ from pathlib import Path
 import requests
 
 import db
+from migrate import run_migrations
 from rules import (
     attended,
     compute_stats,
@@ -16,35 +17,9 @@ from rules import (
 
 SEED_PATH = Path(__file__).parent / "seed.json"
 
-SCHEMA = """
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'reflections')
-CREATE TABLE reflections (
-    id INT IDENTITY(1,1) PRIMARY KEY,
-    hackathon_id INT NOT NULL,
-    went_well NVARCHAR(MAX) NULL,
-    went_badly NVARCHAR(MAX) NULL,
-    lesson NVARCHAR(MAX) NULL,
-    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-);
-
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'checklist_rules')
-CREATE TABLE checklist_rules (
-    id INT IDENTITY(1,1) PRIMARY KEY,
-    condition_field NVARCHAR(64) NOT NULL,
-    condition_value NVARCHAR(64) NOT NULL,
-    item NVARCHAR(255) NOT NULL,
-    CONSTRAINT uq_checklist_rule UNIQUE (condition_field, condition_value, item)
-);
-"""
-
 
 def setup_db(conn):
-    cur = conn.cursor()
-    for statement in SCHEMA.split(";"):
-        sql = statement.strip()
-        if sql:
-            cur.execute(sql)
-    conn.commit()
+    run_migrations(conn)
     seed_if_empty(conn)
 
 

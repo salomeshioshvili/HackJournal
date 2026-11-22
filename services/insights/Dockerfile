@@ -12,7 +12,8 @@ RUN useradd --create-home --uid 10001 appuser \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py db.py rules.py service.py seed.json ./
+COPY app.py db.py migrate.py rules.py service.py seed.json ./
+COPY migrations ./migrations
 
 USER appuser
 EXPOSE 8002
