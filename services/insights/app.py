@@ -1,8 +1,11 @@
 import os
+import signal
+import sys
 import time
 
 import requests
 from flask import Flask, g, jsonify, request
+from waitress import serve
 
 import db
 import service
@@ -177,7 +180,6 @@ def create_app():
     return app
 
 
-app = create_app()
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    serve(create_app(), host="0.0.0.0", port=PORT)
