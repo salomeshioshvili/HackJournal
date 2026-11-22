@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=./system.schema.json
+student: sshioshvili.ieu2024
+prefix: sshioshvili-ieu2024
+public_url: https://sshioshvilieu2024ui.z28.web.core.windows.net
+ui:
+  path: ui
+  storage_account: sshioshvilieu2024ui
+  calls: [log, insights]
+azure:
+  resource_group: rg-sshioshvili-ieu2024
+  container_apps_environment: sshioshvili-ieu2024-env
+  sql_server: sshioshvili-ieu2024-sql
+  registry: ghcr.io/salomeshioshvili
+services:
+  log:
+    description: Hackathons, their status, teammates and projects.
+    path: services/log
+    openapi: services/log/openapi.yaml
+    port_default: 8001
+    health: /health
+    migrations: services/log/migrations
+    env:
+      PORT: { default: 8001, description: Port the service listens on }
+      DATABASE_URL: { secret: true, description: Connection string of the log database }
+      UI_ORIGIN: { default: "", description: Comma-separated browser origins allowed by CORS (the UI's URL) }
+      GIT_SHA: { default: dev, description: Commit SHA reported by /health as the version }
+    calls: []
+    azure:
+      container_app: sshioshvili-ieu2024-log
+      sql_database: sshioshvili-ieu2024-log-db
+  insights:
+    description: Stats, skill gaps, prep checklists and reflections, built on the log's records.
+    path: services/insights
+    openapi: services/insights/openapi.yaml
+    port_default: 8002
+    health: /health
+    migrations: services/insights/migrations
+    env:
+      PORT: { default: 8002, description: Port the service listens on }
+      DATABASE_URL: { secret: true, description: Connection string of the insights database }
+      LOG_URL: { default: "http://log:8001", description: Base URL of the log service }
+      LOG_TIMEOUT_S: { default: 2, description: Timeout in seconds for calls to log }
+      UI_ORIGIN: { default: "", description: Comma-separated browser origins allowed by CORS (the UI's URL) }
+      GIT_SHA: { default: dev, description: Commit SHA reported by /health as the version }
+    calls:
+      - service: log
+        url_env: LOG_URL
+        endpoints: ["GET /api/records"]
+        timeout_s: 2
+        on_failure: >-
+          The insights page shows saved reflections with a "log unavailable" notice instead of stats,
+          gaps and checklists (503 log_unavailable). Checklists and new reflections return 503 until log is back.
+    azure:
+      container_app: sshioshvili-ieu2024-insights
+      sql_database: sshioshvili-ieu2024-insights-db

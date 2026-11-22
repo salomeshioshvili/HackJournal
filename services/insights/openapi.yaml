@@ -1,0 +1,236 @@
+openapi: 3.0.3
+info:
+  title: Hackathon Journal - insights service
+  version: "2.0"
+  description: >-
+    Owns reflections and checklist rules. Stats, gaps, upcoming hackathons and checklists are computed
+    from the log service's GET /api/records (2 s timeout). When log is unavailable these endpoints
+    return 503 with error "log_unavailable".
+servers:
+  - url: http://localhost:8002
+paths:
+  /health:
+    get:
+      summary: Service and database health (writes and reads a row)
+      responses:
+        "200":
+          description: Service and database are working
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: Database check failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+  /api/summary:
+    get:
+      summary: Everything the insights page needs
+      responses:
+        "200":
+          description: Stats, gaps, upcoming hackathons and labelled reflections
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Summary" }
+        "503":
+          description: Log is unavailable; reflections are still returned, stats is null
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SummaryDegraded" }
+  /api/checklist/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Prep checklist for one hackathon
+      responses:
+        "200":
+          description: Checklist items for the hackathon
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hackathon, items]
+                properties:
+                  hackathon: { $ref: "#/components/schemas/LogRecord" }
+                  items:
+                    type: array
+                    items: { type: string }
+        "404":
+          description: Hackathon not found in log
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Log is unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LogUnavailable" }
+  /api/reflections:
+    get:
+      summary: All reflections, newest first (hackathon_name is "Unknown" if log is down)
+      responses:
+        "200":
+          description: Reflections
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LabelledReflection" }
+    post:
+      summary: Write a reflection for an attended hackathon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hackathon_id]
+              properties:
+                hackathon_id: { oneOf: [{ type: integer }, { type: string }], description: Number or numeric string }
+                went_well: { type: string }
+                went_badly: { type: string }
+                lesson: { type: string }
+      responses:
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, hackathon_id, went_well, went_badly, lesson]
+                properties:
+                  id: { type: integer }
+                  hackathon_id: { type: integer }
+                  went_well: { type: string, nullable: true }
+                  went_badly: { type: string, nullable: true }
+                  lesson: { type: string, nullable: true }
+        "400":
+          description: Not a number, not an attended hackathon, or all texts empty
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Log is unavailable, so the hackathon cannot be checked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LogUnavailable" }
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, db, version, service]
+      properties:
+        status: { type: string, enum: [ok, error] }
+        db: { type: string, enum: [ok, error] }
+        version: { type: string, description: Commit SHA or "dev" }
+        service: { type: string, enum: [insights] }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    LogUnavailable:
+      type: object
+      required: [error, message, detail]
+      properties:
+        error: { type: string, enum: [log_unavailable] }
+        message: { type: string }
+        detail: { type: string }
+    RankedPair:
+      type: array
+      description: '[name, count]'
+      minItems: 2
+      maxItems: 2
+      items:
+        oneOf: [{ type: string }, { type: integer }]
+    Stats:
+      type: object
+      required: [attended, projects, won, win_rate_percent, top_technologies, top_teammates]
+      properties:
+        attended: { type: integer }
+        projects: { type: integer }
+        won: { type: integer }
+        win_rate_percent: { type: integer }
+        top_technologies:
+          type: array
+          items: { $ref: "#/components/schemas/RankedPair" }
+        top_teammates:
+          type: array
+          items: { $ref: "#/components/schemas/RankedPair" }
+    Reflection:
+      type: object
+      required: [id, hackathon_id, went_well, went_badly, lesson, created_at]
+      properties:
+        id: { type: integer }
+        hackathon_id: { type: integer }
+        went_well: { type: string, nullable: true }
+        went_badly: { type: string, nullable: true }
+        lesson: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    LabelledReflection:
+      allOf:
+        - $ref: "#/components/schemas/Reflection"
+        - type: object
+          required: [hackathon_name]
+          properties:
+            hackathon_name: { type: string }
+    Summary:
+      type: object
+      required: [stats, gaps, upcoming, reflections]
+      properties:
+        stats: { $ref: "#/components/schemas/Stats" }
+        gaps:
+          type: array
+          items: { type: string }
+        upcoming:
+          type: array
+          items: { $ref: "#/components/schemas/LogRecord" }
+        reflections:
+          type: array
+          items: { $ref: "#/components/schemas/LabelledReflection" }
+    SummaryDegraded:
+      type: object
+      required: [error, message, detail, stats, gaps, upcoming, reflections]
+      properties:
+        error: { type: string, enum: [log_unavailable] }
+        message: { type: string }
+        detail: { type: string }
+        stats: { type: object, nullable: true, description: Always null here }
+        gaps: { type: array, maxItems: 0, items: { type: string } }
+        upcoming: { type: array, maxItems: 0, items: { $ref: "#/components/schemas/LogRecord" } }
+        reflections:
+          type: array
+          items: { $ref: "#/components/schemas/Reflection" }
+    LogRecord:
+      type: object
+      description: Same shape as Hackathon in the log service's openapi.yaml (GET /api/records)
+      required: [id, name, mode, start_date, end_date, status, travel_funded, projects, teammates]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        location: { type: string, nullable: true }
+        mode: { type: string, enum: [in_person, online, hybrid] }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        application_deadline: { type: string, format: date, nullable: true }
+        status: { type: string, enum: [interested, applied, accepted, attended, rejected, skipped] }
+        travel_funded: { type: boolean }
+        notes: { type: string, nullable: true }
+        projects:
+          type: array
+          items:
+            type: object
+            required: [id, name, result, technologies]
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              result: { type: string, enum: [participated, finalist, winner] }
+              technologies:
+                type: array
+                items: { type: string }
+        teammates:
+          type: array
+          items: { type: string }
