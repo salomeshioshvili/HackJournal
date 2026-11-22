@@ -1,0 +1,277 @@
+openapi: 3.0.3
+info:
+  title: Hackathon Journal - log service
+  version: "2.0"
+  description: Owns hackathons, their status, teammates and projects. Insights reads GET /api/records.
+servers:
+  - url: http://localhost:8001
+paths:
+  /health:
+    get:
+      summary: Service and database health (writes and reads a row)
+      responses:
+        "200":
+          description: Service and database are working
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: Database check failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+  /api/hackathons:
+    get:
+      summary: List hackathons with their deadline urgency
+      responses:
+        "200":
+          description: All hackathons, ordered by start date
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HackathonSummary" }
+    post:
+      summary: Create a hackathon (status starts as interested)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewHackathon" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Hackathon" }
+        "400":
+          description: Validation failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/records:
+    get:
+      summary: Full hackathon records (seam endpoint used by insights)
+      responses:
+        "200":
+          description: Every hackathon with its projects and teammates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Hackathon" }
+  /api/hackathons/{id}:
+    parameters:
+      - $ref: "#/components/parameters/HackathonId"
+    get:
+      summary: One hackathon with the statuses it can move to
+      responses:
+        "200":
+          description: Found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HackathonDetail" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/hackathons/{id}/status:
+    parameters:
+      - $ref: "#/components/parameters/HackathonId"
+    post:
+      summary: Change status (only allowed transitions)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: "#/components/schemas/Status" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Hackathon" }
+        "400":
+          description: Transition not allowed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/hackathons/{id}/teammates:
+    parameters:
+      - $ref: "#/components/parameters/HackathonId"
+    post:
+      summary: Add a teammate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Hackathon" }
+        "400":
+          description: Name missing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/hackathons/{id}/projects:
+    parameters:
+      - $ref: "#/components/parameters/HackathonId"
+    post:
+      summary: Add a project (only to attended hackathons)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, result]
+              properties:
+                name: { type: string }
+                result: { $ref: "#/components/schemas/Result" }
+                technologies: { type: string, description: 'Comma-separated, e.g. "Python, Flask"' }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Hackathon" }
+        "400":
+          description: Validation failed or hackathon not attended
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+components:
+  parameters:
+    HackathonId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+  schemas:
+    Health:
+      type: object
+      required: [status, db, version, service]
+      properties:
+        status: { type: string, enum: [ok, error] }
+        db: { type: string, enum: [ok, error] }
+        version: { type: string, description: Commit SHA or "dev" }
+        service: { type: string, enum: [log] }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    Status:
+      type: string
+      enum: [interested, applied, accepted, attended, rejected, skipped]
+    Mode:
+      type: string
+      enum: [in_person, online, hybrid]
+    Result:
+      type: string
+      enum: [participated, finalist, winner]
+    NewHackathon:
+      type: object
+      required: [name, mode, start_date, end_date]
+      properties:
+        name: { type: string }
+        location: { type: string }
+        mode: { $ref: "#/components/schemas/Mode" }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        application_deadline: { type: string, format: date }
+        travel_funded:
+          description: Funded when true, "true", "1", "on" (HTML checkbox) or 1
+          oneOf:
+            - { type: boolean }
+            - { type: string }
+            - { type: integer }
+        notes: { type: string }
+    HackathonBase:
+      type: object
+      required: [id, name, mode, start_date, end_date, status, travel_funded]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        location: { type: string, nullable: true }
+        mode: { $ref: "#/components/schemas/Mode" }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        application_deadline: { type: string, format: date, nullable: true }
+        status: { $ref: "#/components/schemas/Status" }
+        travel_funded: { type: boolean }
+        notes: { type: string, nullable: true }
+    HackathonSummary:
+      allOf:
+        - $ref: "#/components/schemas/HackathonBase"
+        - type: object
+          required: [urgency]
+          properties:
+            urgency:
+              type: string
+              enum: [none, no_deadline, overdue, urgent, soon, later]
+    Project:
+      type: object
+      required: [id, name, result, technologies]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        result: { $ref: "#/components/schemas/Result" }
+        technologies:
+          type: array
+          items: { type: string }
+    Hackathon:
+      allOf:
+        - $ref: "#/components/schemas/HackathonBase"
+        - type: object
+          required: [projects, teammates]
+          properties:
+            projects:
+              type: array
+              items: { $ref: "#/components/schemas/Project" }
+            teammates:
+              type: array
+              items: { type: string }
+    HackathonDetail:
+      allOf:
+        - $ref: "#/components/schemas/Hackathon"
+        - type: object
+          required: [next_statuses, modes, results]
+          properties:
+            next_statuses:
+              type: array
+              items: { $ref: "#/components/schemas/Status" }
+            modes:
+              type: array
+              items: { $ref: "#/components/schemas/Mode" }
+            results:
+              type: array
+              items: { $ref: "#/components/schemas/Result" }

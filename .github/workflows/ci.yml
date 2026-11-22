@@ -9,6 +9,27 @@ permissions:
   packages: write
 
 jobs:
+  describe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validators
+        run: pip install check-jsonschema==0.29.4 openapi-spec-validator==0.7.1 pyyaml==6.0.2
+
+      - name: Validate system.yaml against system.schema.json
+        run: check-jsonschema --schemafile system.schema.json system.yaml
+
+      - name: Validate each openapi.yaml against the OpenAPI specification
+        run: openapi-spec-validator services/log/openapi.yaml services/insights/openapi.yaml
+
+      - name: Check the seam calls exist in the called service's OpenAPI document
+        run: python scripts/check_system.py
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -53,7 +74,7 @@ jobs:
           pytest --cov=rules --cov=service --cov=migrate --cov-report=term-missing --cov-fail-under=70
 
   images:
-    needs: test
+    needs: [describe, test]
     runs-on: ubuntu-latest
     strategy:
       matrix:
