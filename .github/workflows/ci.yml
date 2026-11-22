@@ -9,7 +9,51 @@ permissions:
   packages: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [log, insights]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements*.txt
+
+      - name: Generate throwaway database passwords for this run
+        run: |
+          for name in MSSQL_SA_PASSWORD LOG_DB_PASSWORD INSIGHTS_DB_PASSWORD; do
+            value="Ci1-$(openssl rand -hex 16)"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+
+      - name: Start SQL Server and create the two databases
+        run: |
+          docker compose up -d --wait db
+          docker compose run --rm db-init
+
+      - name: Install
+        working-directory: services/${{ matrix.service }}
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check services/${{ matrix.service }}
+
+      - name: Test with coverage (fails under 70%)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          if [ "${{ matrix.service }}" = "log" ]; then password="$LOG_DB_PASSWORD"; else password="$INSIGHTS_DB_PASSWORD"; fi
+          export DATABASE_URL="mssql+pymssql://${{ matrix.service }}_user:${password}@localhost:1433/${{ matrix.service }}_db"
+          export LOG_DATABASE_URL="mssql+pymssql://log_user:${LOG_DB_PASSWORD}@localhost:1433/log_db"
+          pytest --cov=rules --cov=service --cov=migrate --cov-report=term-missing --cov-fail-under=70
+
   images:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:

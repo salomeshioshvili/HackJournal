@@ -1,6 +1,6 @@
 import os
 import time
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import pymssql
 
@@ -17,8 +17,8 @@ def db_params():
     return {
         "server": parsed.hostname,
         "port": parsed.port or 1433,
-        "user": parsed.username,
-        "password": parsed.password,
+        "user": unquote(parsed.username or ""),
+        "password": unquote(parsed.password or ""),
         "database": parsed.path.lstrip("/"),
     }
 
@@ -26,12 +26,13 @@ def db_params():
 def connect(retries=30):
     params = db_params()
     last = None
-    for _ in range(retries):
+    for attempt in range(retries):
         try:
             return pymssql.connect(as_dict=True, login_timeout=10, **params)
         except Exception as err:
             last = err
-            time.sleep(2)
+            if attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 10))
     raise RuntimeError(last)
 
 
