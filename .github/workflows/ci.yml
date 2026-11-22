@@ -8,6 +8,12 @@ permissions:
   contents: read
   packages: write
 
+env:
+  PREFIX: sshioshvili-ieu2024
+  RG: rg-sshioshvili-ieu2024
+  STORAGE: sshioshvilieu2024ui
+  UI_ORIGIN: https://sshioshvilieu2024ui.z28.web.core.windows.net
+
 jobs:
   describe:
     runs-on: ubuntu-latest
@@ -98,3 +104,75 @@ jobs:
           context: ./services/${{ matrix.service }}
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.sha }}
+
+  deploy:
+    needs: images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure (OIDC, no stored password)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy log
+        env:
+          DB_URL: ${{ secrets.LOG_DATABASE_URL }}
+        run: |
+          app="$PREFIX-log"
+          az containerapp secret set -n "$app" -g "$RG" --secrets "database-url=$DB_URL" -o none
+          az containerapp update -n "$app" -g "$RG" \
+            --image "ghcr.io/${{ github.repository_owner }}/log:${{ github.sha }}" \
+            --set-env-vars DATABASE_URL=secretref:database-url PORT=8001 \
+              "UI_ORIGIN=$UI_ORIGIN" "GIT_SHA=${{ github.sha }}" -o none
+          az containerapp ingress update -n "$app" -g "$RG" --target-port 8001 -o none
+          echo "LOG_FQDN=$(az containerapp show -n "$app" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
+
+      - name: Deploy insights
+        env:
+          DB_URL: ${{ secrets.INSIGHTS_DATABASE_URL }}
+        run: |
+          app="$PREFIX-insights"
+          az containerapp secret set -n "$app" -g "$RG" --secrets "database-url=$DB_URL" -o none
+          az containerapp update -n "$app" -g "$RG" \
+            --image "ghcr.io/${{ github.repository_owner }}/insights:${{ github.sha }}" \
+            --set-env-vars DATABASE_URL=secretref:database-url PORT=8002 \
+              "LOG_URL=https://$LOG_FQDN" LOG_TIMEOUT_S=2 \
+              "UI_ORIGIN=$UI_ORIGIN" "GIT_SHA=${{ github.sha }}" -o none
+          az containerapp ingress update -n "$app" -g "$RG" --target-port 8002 -o none
+          echo "INSIGHTS_FQDN=$(az containerapp show -n "$app" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)" >> "$GITHUB_ENV"
+
+      - name: Wait until both services report this commit on /health
+        run: |
+          for host in "$LOG_FQDN" "$INSIGHTS_FQDN"; do
+            ok=""
+            for attempt in $(seq 1 30); do
+              body=$(curl -s --max-time 60 "https://$host/health" || true)
+              echo "attempt $attempt $host: $body"
+              if echo "$body" | grep -q '"status":"ok"' && echo "$body" | grep -q "${{ github.sha }}"; then
+                ok=yes
+                break
+              fi
+              sleep 10
+            done
+            [ -n "$ok" ] || { echo "$host did not become healthy on ${{ github.sha }}"; exit 1; }
+          done
+
+      - name: Upload the UI with the services' URLs as its config
+        run: |
+          printf 'window.CONFIG = {\n  LOG_URL: "https://%s",\n  INSIGHTS_URL: "https://%s",\n};\n' \
+            "$LOG_FQDN" "$INSIGHTS_FQDN" > ui/config.js
+          cat ui/config.js
+          az storage blob upload-batch --account-name "$STORAGE" --auth-mode key \
+            -d '$web' -s ui --overwrite --content-cache-control "no-cache" -o none
+          curl -fsS --max-time 30 "$UI_ORIGIN/config.js"
