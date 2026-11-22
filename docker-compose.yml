@@ -74,5 +74,12 @@ services:
     ports:
       - "8002:8002"
 
+  ui:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+
 volumes:
   mssql-data:
