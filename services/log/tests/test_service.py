@@ -25,6 +25,33 @@ def test_failing_migration_is_rolled_back_and_not_recorded(conn, tmp_path):
     assert cur.fetchone()["n"] == 0
 
 
+def test_country_backfill_keeps_rows_and_fills_country(conn, make_hackathon):
+    with_comma = make_hackathon(name="Old A", location="Gdańsk, Poland")
+    no_comma = make_hackathon(name="Old B", location="Online")
+    cur = conn.cursor()
+    cur.execute("UPDATE hackathons SET country = NULL")
+    conn.commit()
+
+    backfill = migrate.split_batches((migrate.MIGRATIONS_DIR / "003_add_country.sql").read_text(encoding="utf-8"))[1]
+    cur.execute(backfill)
+    conn.commit()
+
+    assert len(service.list_hackathons(conn)) == 2
+    assert service.get_hackathon(conn, with_comma)["country"] == "Poland"
+    assert service.get_hackathon(conn, with_comma)["location"] == "Gdańsk, Poland"
+    assert service.get_hackathon(conn, no_comma)["country"] is None
+
+
+def test_new_and_seeded_hackathons_get_a_country(conn, make_hackathon):
+    new_id = make_hackathon(location="Turin, Italy")
+    assert service.get_hackathon(conn, new_id)["country"] == "Italy"
+    cur = conn.cursor()
+    cur.execute("DELETE FROM hackathons")
+    conn.commit()
+    service.seed_if_empty(conn)
+    assert all(h["country"] for h in service.list_hackathons(conn))
+
+
 def test_seed_only_when_empty(conn):
     service.seed_if_empty(conn)
     first = len(service.list_hackathons(conn))

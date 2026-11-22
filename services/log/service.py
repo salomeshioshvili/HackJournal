@@ -7,6 +7,7 @@ from rules import (
     ALLOWED_TRANSITIONS,
     RESULTS,
     can_transition,
+    country_from_location,
     parse_technologies,
     urgency,
     validate_hackathon,
@@ -20,6 +21,7 @@ def _row(h):
         "id": h["id"],
         "name": h["name"],
         "location": h["location"],
+        "country": h["country"],
         "mode": h["mode"],
         "start_date": str(h["start_date"])[:10] if h["start_date"] else None,
         "end_date": str(h["end_date"])[:10] if h["end_date"] else None,
@@ -45,13 +47,14 @@ def seed_if_empty(conn):
         cur.execute(
             """
             INSERT INTO hackathons
-              (name, location, mode, start_date, end_date,
+              (name, location, country, mode, start_date, end_date,
                application_deadline, status, travel_funded, notes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 h["name"],
                 h.get("location"),
+                country_from_location(h.get("location")),
                 h["mode"],
                 h["start_date"],
                 h["end_date"],
@@ -123,14 +126,15 @@ def add_hackathon(conn, data) -> int:
     cur.execute(
         """
         INSERT INTO hackathons
-          (name, location, mode, start_date, end_date,
+          (name, location, country, mode, start_date, end_date,
            application_deadline, travel_funded, notes)
         OUTPUT INSERTED.id
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             h["name"],
             h["location"],
+            h["country"],
             h["mode"],
             h["start_date"],
             h["end_date"],
