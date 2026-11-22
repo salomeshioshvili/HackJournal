@@ -31,6 +31,12 @@ def urgency(deadline, today: date) -> str:
     return "later"
 
 
+def country_from_location(location):
+    if not location or "," not in location:
+        return None
+    return location.rsplit(",", 1)[1].strip() or None
+
+
 def parse_technologies(text) -> list:
     names = {part.strip().lower() for part in (text or "").split(",")}
     names.discard("")
@@ -62,9 +68,11 @@ def validate_hackathon(data) -> dict:
     if end < start:
         raise ValueError("End date cannot be before start date.")
     deadline = _parse_date(data.get("application_deadline"), "Application deadline", required=False)
+    location = (data.get("location") or "").strip() or None
     return {
         "name": name,
-        "location": (data.get("location") or "").strip() or None,
+        "location": location,
+        "country": country_from_location(location),
         "mode": mode,
         "start_date": start,
         "end_date": end,

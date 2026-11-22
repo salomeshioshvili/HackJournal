@@ -212,6 +212,7 @@ components:
         id: { type: integer }
         name: { type: string }
         location: { type: string, nullable: true }
+        country: { type: string, nullable: true }
         mode: { type: string, enum: [in_person, online, hybrid] }
         start_date: { type: string, format: date }
         end_date: { type: string, format: date }

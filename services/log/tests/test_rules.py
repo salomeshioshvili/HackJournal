@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from rules import can_transition, parse_technologies, urgency, validate_hackathon
+from rules import can_transition, country_from_location, parse_technologies, urgency, validate_hackathon
 
 TODAY = date(2026, 11, 22)
 
@@ -33,6 +33,20 @@ def test_urgency(deadline, expected):
 def test_parse_technologies_cleans_and_dedupes():
     assert parse_technologies(" Python, react,python ,, ") == ["python", "react"]
     assert parse_technologies(None) == []
+
+
+@pytest.mark.parametrize(
+    "location, expected",
+    [
+        ("Gdańsk, Poland", "Poland"),
+        ("Lausanne, Vaud, Switzerland", "Switzerland"),
+        ("Online", None),
+        ("Paris,", None),
+        (None, None),
+    ],
+)
+def test_country_from_location(location, expected):
+    assert country_from_location(location) == expected
 
 
 def test_validate_hackathon_ok():

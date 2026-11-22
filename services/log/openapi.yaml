@@ -222,6 +222,7 @@ components:
         id: { type: integer }
         name: { type: string }
         location: { type: string, nullable: true }
+        country: { type: string, nullable: true, description: Last comma-separated part of location }
         mode: { $ref: "#/components/schemas/Mode" }
         start_date: { type: string, format: date }
         end_date: { type: string, format: date }
