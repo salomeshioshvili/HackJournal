@@ -9,3 +9,4 @@ data/
 htmlcov/
 .pytest_cache/
 .DS_Store
+.idea/
