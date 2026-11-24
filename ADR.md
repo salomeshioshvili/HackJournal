@@ -2,7 +2,7 @@
 
 ## 1. Backend language and framework: Flask with sqlite3
 Date: 2026-10-08
-Status: Decided
+Status: Superseded by [7]
 Context: The app is a small single-user tracker with two domains, one SQLite file and one process, and I must explain all of its code on paper at the comprehension check. It needs server-rendered pages, simple routing and nothing more.
 Decision: I chose Python 3.12 with Flask and the built-in sqlite3 module, rendering Jinja templates from the same process.
 Alternatives considered: Django, rejected because its ORM, migrations and admin add hidden behaviour I would have to explain and the app needs none of it. FastAPI, rejected because the app serves HTML pages rather than a JSON API, so its async support and generated schemas buy nothing here. SQLAlchemy on top of Flask, rejected because plain SQL keeps every query visible and the schema is only seven tables.
@@ -18,7 +18,7 @@ Consequences: Only one read-only function and hackathon_id cross the seam, so As
 
 ## 3. Schema: join tables for many-to-many data and a single hackathon_id link between domains
 Date: 2026-10-11
-Status: Decided
+Status: Superseded by [7]
 Context: A hackathon has many teammates and a project has many technologies, and the insights domain needs to count both. The insights tables must also refer to a hackathon without owning any of the log's data.
 Decision: Teammates and technologies live in join tables (hackathon_teammates and project_technologies) with composite primary keys, and the insights tables (reflections and checklist_rules) connect to the log only through hackathon_id. CHECK constraints on status, mode and result stop invalid values from being stored.
 Alternatives considered: Comma-separated names in a text column, rejected because every count would need string parsing and spelling clean-up. A single wide hackathons table with JSON columns, rejected because SQLite cannot enforce allowed values or foreign keys inside JSON.
@@ -26,7 +26,7 @@ Consequences: Counting teammates and technologies becomes a plain query over row
 
 ## 4. Testing approach: test the rules directly, leave routes thin
 Date: 2026-10-11
-Status: Decided
+Status: Superseded by [9]
 Context: The 70% bar applies to the business logic of the two domains, and my code is split into pure rule functions and functions that use SQLite.
 Decision: I test log/service.py and insights/service.py directly with pytest, using an in-memory SQLite database built from the real schema for the database functions, and measure coverage only on those two packages, leaving out routes. I also test that booting twice keeps the seed data unchanged and keeps rows added later.
 Alternatives considered: Testing through Flask's test client, rejected because it exercises routing and templates instead of the rules and makes a failure harder to trace. Mocking the database, rejected because the SQL is part of the logic and an in-memory SQLite is just as fast.
@@ -46,12 +46,36 @@ Status: Decided
 Context: Assignment 2 needs each domain in its own container with its own database. In Assignment 1 I already decided the cut was list_hackathon_records(), so that call has to become an HTTP request. After the Assignment 1 feedback I also realised ADR-3 overstated the schema: I wrote that checklist_rules connect through hackathon_id, but in the real database that column only exists on reflections.
 Decision: I kept that same seam. The log service owns hackathons, teammates, projects and technologies. The insights service owns reflections and checklist_rules. Insights asks log for data over HTTP using LOG_URL, with a timeout. reflections.hackathon_id is just a number now, not a foreign key across databases. checklist_rules stay global prep rules with condition_field / condition_value / item only — no hackathon_id. I am recording that correction here instead of rewriting ADR-3.
 Alternatives considered: Letting only the browser call both services, rejected because the brief wants at least one server-side call across the seam. Putting everything back in one app, rejected because that would undo Assignment 1.
-Consequences: SQL can no longer check that a reflection points at a real hackathon, so insights has to cope when log is down (clear error, not a crash). I already have two services in compose; I still need to move the full schema and build the static UI.
+Consequences: SQL can no longer check that a reflection points at a real hackathon, so insights has to cope when log is down (clear error, not a crash). Both services, migrations and the static UI are in place now.
 
 ## 7. Database changes as numbered SQL migrations
 Date: 2026-11-20
 Status: Decided
-Context: Until now each service created its tables from Python with "create if not exists". That works the first time, but it can't change a table that already has data, and I had no way to see which version of the schema a database was on. Later in this assignment I have to change a table on Azure without losing what's in it.
-Decision: I moved the tables into numbered SQL files in a migrations folder for each service (001_init.sql, 002_health_check.sql, and so on). When a service starts, migrate.py looks at a schema_migrations table, runs only the files that aren't listed there yet, in order, and adds each one to the list. If a file fails, the whole file is undone and the service doesn't start, so it never runs on a half-changed database. Seeding still happens after that, and only when the tables are empty.
-Alternatives considered: Alembic, rejected because it would bring in SQLAlchemy, which I don't use, plus its own setup, just for a few tables. Plain SQL files are easier for me to read and explain. Keeping "create if not exists", rejected because it can't change existing tables and keeps no history.
-Consequences: Starting a service a second time changes nothing, and I can check schema_migrations to see what has run. I can't edit a migration once it has run anywhere; any change has to be a new file. There is no undo script either, so fixing a mistake also means a new file. This only works if one copy of a service starts at a time, which is fine because each one runs as a single replica on Azure.
+Context: Until now each service created its tables from Python with "create if not exists". That works the first time, but it can't change a table that already has data, and I had no way to see which version of the schema a database was on. I also moved from one SQLite file to one SQL Server database per service.
+Decision: Numbered SQL files in each service's migrations folder, applied by migrate.py into a schema_migrations table, in order, and rolled back as a whole if one fails. Seed data moved with its tables. The foreign key from reflections to hackathons was lost at the seam, so insights asks log before saving a reflection. If a migration fails in production, the new revision never gets healthy and the old one keeps serving; I fix it with a new file. If data is damaged, I restore from Azure's point-in-time backup and ship another migration.
+Alternatives considered: Alembic, rejected because it needs SQLAlchemy, which I don't use. Keeping "create if not exists", rejected because it can't change existing tables.
+Consequences: A second start applies nothing. Applied files are never edited. This is safe only with one replica, which matches my Azure setting.
+
+## 8. Serverless hosting on Azure with scale to zero
+Date: 2026-11-22
+Status: Decided
+Context: The journal is idle most of the time and runs on student credit, so it should cost nothing while idle but still answer when someone opens the link.
+Decision: Container Apps (min 0, max 1), serverless Azure SQL on the free offer, a Storage static website, and GHCR. Services retry the database with backoff on cold starts, and the UI shows "starting up, try again". Migrations at startup stay safe because there is only one replica.
+Alternatives considered: Always-on App Service, rejected for cost. Azure Container Registry, rejected because GHCR is free.
+Consequences: Idle is cheap; the first visit after a pause can take up to a minute. At 100x traffic I would keep one warm replica, allow more replicas, move migrations into the pipeline, and leave the free SQL offer.
+
+## 9. Pipeline gates and how the system is tested
+Date: 2026-11-22
+Status: Decided
+Context: Every merge to main deploys on its own, so CI must catch mistakes before they reach Azure. The split also added an HTTP call that unit tests alone don't cover.
+Decision: CI validates system.yaml and the OpenAPI files, then runs ruff and pytest per service against SQL Server from compose (coverage ≥70%), then builds the images. On main only, it pushes SHA-tagged images, deploys, and waits for /health. The cross-seam test starts the real log service; another test points insights at a closed port and expects 503.
+Alternatives considered: A stub for log, rejected because it can't catch the two sides drifting apart.
+Consequences: Broken migrations or response shapes never reach Azure. The UI and cold starts are checked by hand, not in CI.
+
+## 10. Still not built: authentication
+Date: 2026-11-22
+Status: Decided
+Context: ADR 5 left out login for a local app. The site is now on public HTTPS, and CORS only stops other websites, not someone using curl.
+Decision: I still did not build authentication. The data is not sensitive, the brief asks for no new features, and login would need Entra ID in both services and the UI.
+Alternatives considered: Container Apps Easy Auth with Entra ID, which I would add first. An API key in config.js, rejected because a static site makes it public.
+Consequences: Anyone with the URLs can use the journal. Worth building when a second person uses it or real personal data goes in.
